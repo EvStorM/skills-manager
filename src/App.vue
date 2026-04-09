@@ -18,11 +18,12 @@ import LoadingOverlay from "./components/LoadingOverlay.vue";
 import Toast from "./components/Toast.vue";
 import ProjectAddModal from "./components/ProjectAddModal.vue";
 import ProjectConfigModal from "./components/ProjectConfigModal.vue";
+import UnmanagedSkillModal from "./components/UnmanagedSkillModal.vue";
 
 const { t } = useI18n();
 
 // Mark components as used for template
-void [ProjectsPanel, ProjectAddModal, ProjectConfigModal];
+void [ProjectsPanel, ProjectAddModal, ProjectConfigModal, UnmanagedSkillModal];
 
 const localeKey = "skillsManager.locale";
 const themeKey = "skillsManager.theme";
@@ -88,6 +89,8 @@ const {
   customIdeOptions,
   filteredIdeSkills,
   showInstallModal,
+  installTargetIde,
+  installTargetProjectIds,
   showUninstallModal,
   uninstallTargetName,
   uninstallMode,
@@ -151,6 +154,39 @@ function handleUpdateMarketSortMode(next: MarketSortMode) {
   marketSortMode.value = next;
 }
 
+const showUnmanagedModal = ref(false);
+const selectedUnmanagedSkill = ref<any>(null);
+
+function handleUnmanagedClick(skill: any) {
+  selectedUnmanagedSkill.value = skill;
+  showUnmanagedModal.value = true;
+}
+
+function handleUnmanagedSearch() {
+  if (!selectedUnmanagedSkill.value) return;
+  const rawName = selectedUnmanagedSkill.value.name;
+  query.value = rawName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  showUnmanagedModal.value = false;
+  activeTab.value = "market";
+  searchMarketplace();
+}
+
+function handleUnmanagedAdopt() {
+  if (!selectedUnmanagedSkill.value) return;
+  const skill = selectedUnmanagedSkill.value;
+  const ideSkill = {
+    id: skill.id,
+    name: skill.name,
+    path: skill.path,
+    ide: skill.ide || "",
+    source: skill.source || "project",
+    managed: false
+  };
+  adoptIdeSkill(ideSkill);
+  showUnmanagedModal.value = false;
+}
+
 async function handleAddProject() {
   showProjectAddModal.value = true;
 }
@@ -193,8 +229,8 @@ async function handleProjectConfigSave(projectId: string, ideTargets: string[]) 
 
 async function handleLinkSkills(projectId: string) {
   const project = projects.value.find((p) => p.id === projectId);
-  if (!project || project.ideTargets.length === 0) {
-    toast.error(t("errors.projectNoIdeTargets"));
+  if (!project) {
+    toast.error(t("errors.projectNoIdeTargets")); // The message might need an update later, but keeping as is for logic
     return;
   }
 
@@ -204,6 +240,17 @@ async function handleLinkSkills(projectId: string) {
   // Switch to local tab and let user select skills
   activeTab.value = "local";
   toast.info(t("messages.selectSkillsForProject", { name: project.name }));
+}
+
+const localPanelRef = ref<any>(null);
+
+function handleJumpToLocalSkill(skillName: string) {
+  activeTab.value = "local";
+  setTimeout(() => {
+    if (localPanelRef.value && typeof localPanelRef.value.setSearchQuery === 'function') {
+      localPanelRef.value.setSearchQuery(skillName);
+    }
+  }, 100);
 }
 </script>
 
@@ -285,6 +332,7 @@ async function handleLinkSkills(projectId: string) {
     <main class="content">
       <template v-if="activeTab === 'local'">
         <LocalPanel
+          ref="localPanelRef"
           :local-skills="localSkills"
           :local-loading="localLoading"
           :installing-id="installingId"
@@ -362,6 +410,8 @@ async function handleLinkSkills(projectId: string) {
           @select-project="handleSelectProject"
           @configure-project="handleConfigureProject"
           @link-skills="handleLinkSkills"
+          @jump-to-local-skill="handleJumpToLocalSkill"
+          @unmanaged-click="handleUnmanagedClick"
         />
       </template>
 
@@ -374,6 +424,8 @@ async function handleLinkSkills(projectId: string) {
       :visible="showInstallModal"
       :ide-options="ideOptions"
       :projects="projects"
+      :initial-ide-targets="installTargetIde"
+      :initial-project-ids="installTargetProjectIds"
       @confirm="confirmInstallToIde"
       @cancel="closeInstallModal"
     />
@@ -401,6 +453,14 @@ async function handleLinkSkills(projectId: string) {
     />
 
     <Toast />
+
+    <UnmanagedSkillModal
+      :visible="showUnmanagedModal"
+      :skill="selectedUnmanagedSkill"
+      @cancel="showUnmanagedModal = false"
+      @search="handleUnmanagedSearch"
+      @adopt="handleUnmanagedAdopt"
+    />
 
     <LoadingOverlay :visible="busy" :text="busyText" />
   </div>

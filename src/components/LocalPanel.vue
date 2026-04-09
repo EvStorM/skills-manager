@@ -38,6 +38,12 @@ const previewLoading = ref(false);
 const previewSkill = ref<LocalSkill | null>(null);
 const previewData = ref<LocalSkillPreview | null>(null);
 
+defineExpose({
+  setSearchQuery: (query: string) => {
+    searchQuery.value = query;
+  }
+});
+
 const filteredLocalSkills = computed(() => {
   const keyword = searchQuery.value.trim().toLowerCase();
   if (!keyword) return props.localSkills;
