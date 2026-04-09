@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 const usedByText = computed(() => {
   if (!props.skill || props.skill.usedBy.length === 0) return "-";
-  return props.skill.usedBy.join("?");
+  return props.skill.usedBy.join(" · ");
 });
 
 const descriptionText = computed(() => {
@@ -41,7 +41,7 @@ function close() {
             <h2 class="preview-title">{{ skill?.name ?? t("local.previewTitle") }}</h2>
             <p class="preview-description">{{ descriptionText }}</p>
           </div>
-          <button class="preview-close" @click="close">?</button>
+          <button class="preview-close" @click="close" aria-label="Close">×</button>
         </div>
 
         <div class="preview-body">

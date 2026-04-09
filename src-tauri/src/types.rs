@@ -121,6 +121,7 @@ pub struct LocalSkill {
     pub description: String,
     pub path: String,
     pub source: String,
+    pub source_url: Option<String>,
     pub ide: Option<String>,
     pub used_by: Vec<String>,
 }

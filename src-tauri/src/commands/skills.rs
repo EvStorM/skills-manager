@@ -14,6 +14,9 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+const MANAGED_COPY_MARKER: &str = ".skills-manager-source";
+const MARKET_SKILL_METADATA: &str = ".skills-manager.json";
+
 fn read_skill_metadata(skill_dir: &Path) -> (String, String) {
     let name = skill_dir
         .file_name()
@@ -57,6 +60,39 @@ fn read_skill_metadata(skill_dir: &Path) -> (String, String) {
     (final_name, description)
 }
 
+fn read_market_skill_source_url(skill_dir: &Path) -> Option<String> {
+    let metadata_path = skill_dir.join(MARKET_SKILL_METADATA);
+    let raw = fs::read_to_string(metadata_path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    parsed
+        .get("source_url")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+fn managed_copy_marker_path(skill_dir: &Path) -> PathBuf {
+    skill_dir.join(MANAGED_COPY_MARKER)
+}
+
+fn read_managed_copy_target(skill_dir: &Path) -> Option<PathBuf> {
+    let marker_path = managed_copy_marker_path(skill_dir);
+    let raw = fs::read_to_string(marker_path).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    resolve_canonical(Path::new(trimmed)).or_else(|| Some(PathBuf::from(trimmed)))
+}
+
+#[cfg(target_family = "windows")]
+fn write_managed_copy_marker(skill_dir: &Path, manager_skill_path: &Path) -> Result<(), String> {
+    fs::write(
+        managed_copy_marker_path(skill_dir),
+        manager_skill_path.display().to_string(),
+    )
+    .map_err(|err| err.to_string())
+}
+
 fn collect_skills_from_dir(base: &Path, source: &str, ide: Option<&str>) -> Vec<LocalSkill> {
     let mut skills = Vec::new();
     if !base.exists() {
@@ -84,6 +120,7 @@ fn collect_skills_from_dir(base: &Path, source: &str, ide: Option<&str>) -> Vec<
             description,
             path: path.display().to_string(),
             source: source.to_string(),
+            source_url: read_market_skill_source_url(&path),
             ide: ide.map(|value| value.to_string()),
             used_by: Vec::new(),
         });
@@ -119,13 +156,14 @@ fn collect_ide_skills(
             Err(_) => continue,
         };
         let link_target = fs::read_link(&path).ok();
+        let managed_copy_target = read_managed_copy_target(&path);
         if !metadata.is_dir() && link_target.is_none() {
             continue;
         }
 
         let skill_dir = path.as_path();
         let has_skill_file = skill_dir.join("SKILL.md").exists();
-        if !has_skill_file && link_target.is_none() {
+        if !has_skill_file && link_target.is_none() && managed_copy_target.is_none() {
             continue;
         }
 
@@ -163,6 +201,19 @@ fn collect_ide_skills(
                         }
                         break;
                     }
+                }
+            }
+            "link"
+        } else if let Some(copy_target) = managed_copy_target {
+            for (manager_path, idx) in manager_map {
+                if *manager_path == copy_target {
+                    managed = true;
+                    if let Some(skill) = manager_skills.get_mut(*idx) {
+                        if !skill.used_by.contains(&ide_label.to_string()) {
+                            skill.used_by.push(ide_label.to_string());
+                        }
+                    }
+                    break;
                 }
             }
             "link"
@@ -352,6 +403,12 @@ fn create_junction_dir(target: &Path, link: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(target_family = "windows")]
+fn should_copy_for_target(target_dir: &Path) -> bool {
+    let normalized = target_dir.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    normalized.ends_with("/.qoder/skills")
+}
+
 #[tauri::command]
 pub fn link_local_skill(request: LinkRequest) -> Result<InstallResult, String> {
     let home = dirs::home_dir().ok_or("Unable to determine the home directory")?;
@@ -402,6 +459,12 @@ pub fn link_local_skill(request: LinkRequest) -> Result<InstallResult, String> {
                 skipped.push(format!("{}: already linked", target.name));
                 continue;
             }
+            if read_managed_copy_target(&link_path)
+                .is_some_and(|managed_target| managed_target == skill_path)
+            {
+                skipped.push(format!("{}: already synced", target.name));
+                continue;
+            }
             skipped.push(format!("{}: target already exists", target.name));
             continue;
         }
@@ -409,12 +472,31 @@ pub fn link_local_skill(request: LinkRequest) -> Result<InstallResult, String> {
         let mut linked_done = false;
         let mut link_errors = Vec::new();
 
-        match create_symlink_dir(&skill_path, &link_path) {
-            Ok(()) => {
-                linked.push(format!("{}: {}", target.name, link_path.display()));
-                linked_done = true;
+        #[cfg(target_family = "windows")]
+        if should_copy_for_target(&target_base) {
+            match copy_dir_recursive(&skill_path, &link_path) {
+                Ok(()) => match write_managed_copy_marker(&link_path, &skill_path) {
+                    Ok(()) => {
+                        linked.push(format!("{}: synced {}", target.name, link_path.display()));
+                        linked_done = true;
+                    }
+                    Err(err) => {
+                        let _ = fs::remove_dir_all(&link_path);
+                        link_errors.push(format!("copy marker: {}", err));
+                    }
+                },
+                Err(err) => link_errors.push(format!("copy: {}", err)),
             }
-            Err(err) => link_errors.push(format!("symlink: {}", err)),
+        }
+
+        if !linked_done {
+            match create_symlink_dir(&skill_path, &link_path) {
+                Ok(()) => {
+                    linked.push(format!("{}: {}", target.name, link_path.display()));
+                    linked_done = true;
+                }
+                Err(err) => link_errors.push(format!("symlink: {}", err)),
+            }
         }
 
         #[cfg(target_family = "windows")]

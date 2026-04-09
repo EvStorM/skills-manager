@@ -101,6 +101,8 @@ const {
   searchMarketplace,
   downloadSkill,
   updateSkill,
+  updateLocalSkill,
+  updateLocalSkills,
   addManualSkill,
   scanLocalSkills,
   openInstallModal,
@@ -340,6 +342,8 @@ function handleJumpToLocalSkill(skillName: string) {
           :ide-options="visibleIdeOptions"
           @install="openInstallModal"
           @install-many="openInstallModal"
+          @update-local="updateLocalSkill"
+          @update-local-many="updateLocalSkills"
           @export-local="exportLocalSkills"
           @delete-local="openDeleteLocalModal"
           @open-dir="openSkillDirectory"

@@ -22,6 +22,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "install", skill: LocalSkill): void;
   (e: "installMany", skills: LocalSkill[]): void;
+  (e: "updateLocal", skill: LocalSkill): void;
+  (e: "updateLocalMany", skills: LocalSkill[]): void;
   (e: "exportLocal", skills: LocalSkill[]): void;
   (e: "deleteLocal", skills: LocalSkill[]): void;
   (e: "openDir", path: string): void;
@@ -69,6 +71,9 @@ watch(
 const selectedSkills = computed(() =>
   filteredLocalSkills.value.filter((skill) => selectedIds.value.includes(skill.id))
 );
+const selectedUpdatableSkills = computed(() =>
+  selectedSkills.value.filter((skill) => !!skill.sourceUrl?.trim())
+);
 
 const allSelected = computed(
   () =>
@@ -106,6 +111,11 @@ function installSelected() {
 function exportSelected() {
   if (selectedSkills.value.length === 0) return;
   emit("exportLocal", selectedSkills.value);
+}
+
+function updateSelected() {
+  if (selectedUpdatableSkills.value.length === 0) return;
+  emit("updateLocalMany", selectedUpdatableSkills.value);
 }
 
 function deleteSelected() {
@@ -182,6 +192,9 @@ function closePreview() {
         <button class="ghost" :disabled="selectedSkills.length === 0 || localLoading" @click="installSelected">
           {{ t("local.installSelected", { count: selectedSkills.length }) }}
         </button>
+        <button class="ghost" :disabled="selectedUpdatableSkills.length === 0 || localLoading" @click="updateSelected">
+          {{ t("local.updateSelected", { count: selectedUpdatableSkills.length }) }}
+        </button>
         <button class="ghost" :disabled="selectedSkills.length === 0 || localLoading" @click="exportSelected">
           {{ t("local.exportSelected", { count: selectedSkills.length }) }}
         </button>
@@ -235,6 +248,13 @@ function closePreview() {
           <div class="card-actions">
             <button class="primary" :disabled="installingId === skill.id" @click="$emit('install', skill)">
             {{ installingId === skill.id ? t("local.processing") : t("local.install") }}
+            </button>
+            <button
+              v-if="skill.sourceUrl && skill.sourceUrl.trim()"
+              class="ghost"
+              @click="$emit('updateLocal', skill)"
+            >
+              {{ t("local.updateOne") }}
             </button>
             <button class="ghost" @click="openPreview(skill)">
               {{ t("local.preview") }}
